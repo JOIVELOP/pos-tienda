@@ -5,6 +5,8 @@ import com.pos.pos.tienda.dto.UsuarioDTO;
 import com.pos.pos.tienda.model.Usuario;
 import com.pos.pos.tienda.repository.UsuarioRepository;
 import com.pos.pos.tienda.service.UsuarioService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -14,6 +16,7 @@ import java.util.List;
 public class UsuarioServiceImpl implements UsuarioService {
 
     private static final String USUARIO_NO_ENCONTRADO = "Usuario no encontrado: ";
+    private static final Logger log = LoggerFactory.getLogger(UsuarioServiceImpl.class);
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
@@ -38,9 +41,6 @@ public class UsuarioServiceImpl implements UsuarioService {
 
     @Override
     public UsuarioDTO save(UsuarioDTO dto) {
-        System.out.println("🔥 ENTRÓ AL SAVE");
-        System.out.println("USERNAME: " + dto.getUsername());
-
         if (usuarioRepository.existsByUsername(dto.getUsername())) {
             throw new BusinessException("Ya existe un usuario con ese username");
         }
@@ -48,7 +48,10 @@ public class UsuarioServiceImpl implements UsuarioService {
         Usuario usuario = toEntity(dto);
         usuario.setPassword(passwordEncoder.encode(dto.getPassword()));
 
-        return toDTO(usuarioRepository.save(usuario));
+        Usuario usuarioGuardado = usuarioRepository.save(usuario);
+        log.info("Usuario creado: username={}, rol={}",
+                usuarioGuardado.getUsername(), usuarioGuardado.getRol());
+        return toDTO(usuarioGuardado);
     }
 
 

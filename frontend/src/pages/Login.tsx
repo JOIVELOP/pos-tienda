@@ -3,6 +3,8 @@ import api from "../api/axios";
 import { LoginRequest, LoginResponse } from "../types/auth";
 import { useNavigate } from "react-router-dom";
 import tienda from "../assets/tienda.avif";
+import { leerDiario, pendientes } from "../offline/diario";
+import { isAxiosError } from "axios";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -25,6 +27,13 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await api.post<LoginResponse>("/auth/login", form);
+      const diario = await leerDiario();
+      if (diario && (!diario.sesion.cerrada || pendientes(diario).length)
+          && diario.sesion.usuario !== res.data.id) {
+        setErrors({ username: "Este navegador tiene un turno de otro empleado. Sincroniza su cierre antes de cambiar de usuario.", password: "" });
+        setLoading(false);
+        return;
+      }
       localStorage.setItem("token", res.data.token);
       localStorage.setItem("user", JSON.stringify({
         id: res.data.id,
@@ -34,8 +43,12 @@ export default function Login() {
 
       setSuccess(true);
       setTimeout(() => navigate("/"), 1800);
-    } catch {
-      setErrors({ username: "Usuario o contraseña incorrectos", password: "" });
+    } catch (error) {
+      const mensaje = isAxiosError(error)
+        ? (error.response?.status === 401 || error.response?.status === 403
+          ? "Usuario o contraseña incorrectos" : "No se pudo contactar al servidor de autenticación.")
+        : error instanceof Error ? error.message : "No se pudo verificar el diario local.";
+      setErrors({ username: mensaje, password: "" });
       setLoading(false);
     }
   };

@@ -9,17 +9,24 @@ import com.pos.pos.tienda.repository.*;
 import com.pos.pos.tienda.service.VentaService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.UUID;
 
 @Service
 public class VentaServiceImpl implements VentaService {
 
     private static final String VENTA_NO_ENCONTRADA = "Venta no encontrada: ";
+    private static final Logger log = LoggerFactory.getLogger(VentaServiceImpl.class);
 
     private final VentaRepository ventaRepository;
     private final DetalleVentaRepository detalleVentaRepository;
@@ -27,33 +34,39 @@ public class VentaServiceImpl implements VentaService {
     private final ClienteRepository clienteRepository;
     private final UsuarioRepository usuarioRepository;
     private final PromocionRepository promocionRepository;
+    private final TurnoCajaRepository turnoCajaRepository;
 
     public VentaServiceImpl(VentaRepository ventaRepository,
                             DetalleVentaRepository detalleVentaRepository,
                             ProductoRepository productoRepository,
                             ClienteRepository clienteRepository,
                             UsuarioRepository usuarioRepository,
-                            PromocionRepository promocionRepository) {
+                            PromocionRepository promocionRepository,
+                            TurnoCajaRepository turnoCajaRepository) {
         this.ventaRepository = ventaRepository;
         this.detalleVentaRepository = detalleVentaRepository;
         this.productoRepository = productoRepository;
         this.clienteRepository = clienteRepository;
         this.usuarioRepository = usuarioRepository;
         this.promocionRepository = promocionRepository;
+        this.turnoCajaRepository = turnoCajaRepository;
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<VentaDTO> findAll() {
         return ventaRepository.findAll().stream().map(this::toDTO).toList();
     }
 
     @Override
+    @Transactional(readOnly = true)
     public VentaDTO findById(Long id) {
         return toDTO(ventaRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(VENTA_NO_ENCONTRADA + id)));
     }
 
     @Override
+    @Transactional(readOnly = true)
     public VentaDTO findByFolio(String folio) {
         return toDTO(ventaRepository.findByFolio(folio)
                 .orElseThrow(() -> new BusinessException(VENTA_NO_ENCONTRADA + folio)));
@@ -61,36 +74,74 @@ public class VentaServiceImpl implements VentaService {
 
     @Override
     @Transactional
-    public VentaDTO save(VentaDTO dto) {
+    public VentaDTO save(VentaDTO dto, String username) {
+        if (dto.getDetalles() == null || dto.getDetalles().isEmpty()) {
+            throw new BusinessException("La venta debe incluir al menos un producto");
+        }
+        BigDecimal descuento = dto.getDescuento() != null ? dto.getDescuento() : BigDecimal.ZERO;
+        if (descuento.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException("El descuento no puede ser negativo");
+        }
+
         Venta venta = new Venta();
-        venta.setFolio(generarFolio());
+        venta.setFolio("TMP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
         venta.setFecha(LocalDateTime.now());
         venta.setMetodoPago(dto.getMetodoPago());
         venta.setEstatus(Venta.Estatus.COMPLETADA);
-        venta.setDescuento(dto.getDescuento() != null ? dto.getDescuento() : BigDecimal.ZERO);
+        venta.setDescuento(descuento);
 
+        // Client-provided prices and totals are not trusted; amounts are recalculated from products.
         if (dto.getIdCliente() != null) {
             clienteRepository.findById(dto.getIdCliente()).ifPresent(venta::setCliente);
         }
 
-        Usuario usuario = usuarioRepository.findById(dto.getIdUsuario())
-                .orElseThrow(() -> new BusinessException("Usuario no encontrado"));
+        Usuario usuario = usuarioRepository.findByUsername(username)
+                .filter(u -> Boolean.TRUE.equals(u.getActivo()))
+                .orElseThrow(() -> new BusinessException("Usuario activo no encontrado"));
+        TurnoCaja turnoCaja = turnoCajaRepository.findOpenByUsernameForUpdate(
+                        username, TurnoCaja.Estado.ABIERTO)
+                .orElseThrow(() -> new BusinessException("Abre tu turno de caja antes de cobrar"));
+        if (descuento.compareTo(BigDecimal.ZERO) > 0
+                && usuario.getRol() != Usuario.Rol.ADMINISTRADOR
+                && usuario.getRol() != Usuario.Rol.ENCARGADO) {
+            throw new BusinessException("Se requiere autorización de encargado para aplicar descuentos");
+        }
         venta.setUsuario(usuario);
+        venta.setTurnoCaja(turnoCaja);
+
+        Map<Long, Integer> cantidadesPorProducto = new TreeMap<>();
+        for (DetalleVentaDTO detalle : dto.getDetalles()) {
+            if (detalle.getIdProducto() == null || detalle.getCantidad() == null
+                    || detalle.getCantidad() <= 0) {
+                throw new BusinessException("Producto o cantidad inválida");
+            }
+            try {
+                cantidadesPorProducto.merge(detalle.getIdProducto(), detalle.getCantidad(),
+                        Math::addExact);
+            } catch (ArithmeticException ex) {
+                throw new BusinessException("La cantidad solicitada es demasiado grande");
+            }
+        }
+
+        Map<Long, Producto> productosBloqueados = new TreeMap<>();
+        cantidadesPorProducto.forEach((idProducto, cantidad) -> {
+            Producto producto = productoRepository.findByIdForUpdate(idProducto)
+                    .orElseThrow(() -> new BusinessException("Producto no encontrado: " + idProducto));
+            if (!Boolean.TRUE.equals(producto.getActivo())) {
+                throw new BusinessException("El producto está inactivo: " + producto.getNombre());
+            }
+            if (producto.getStock() < cantidad) {
+                throw new BusinessException("Stock insuficiente para: " + producto.getNombre());
+            }
+            productosBloqueados.put(idProducto, producto);
+        });
 
         List<DetalleVenta> detalles = new ArrayList<>();
         BigDecimal subtotal = BigDecimal.ZERO;
 
-        for (DetalleVentaDTO detalleDTO : dto.getDetalles()) {
-            if (detalleDTO.getCantidad() <= 0) {
-                throw new BusinessException("Cantidad inválida");
-            }
-
-            Producto producto = productoRepository.findById(detalleDTO.getIdProducto())
-                    .orElseThrow(() -> new BusinessException("Producto no encontrado"));
-
-            if (producto.getStock() < detalleDTO.getCantidad()) {
-                throw new BusinessException("Stock insuficiente para: " + producto.getNombre());
-            }
+        for (Map.Entry<Long, Integer> entrada : cantidadesPorProducto.entrySet()) {
+            Producto producto = productosBloqueados.get(entrada.getKey());
+            int cantidad = entrada.getValue();
 
             List<Promocion> promociones = promocionRepository
                     .findPromocionVigenteByProducto(producto.getId(), LocalDate.now());
@@ -102,17 +153,24 @@ public class VentaServiceImpl implements VentaService {
                 Promocion promo = promociones.get(0);
                 switch (promo.getTipo()) {
                     case PORCENTAJE:
+                        if (promo.getValor().compareTo(BigDecimal.ZERO) < 0
+                                || promo.getValor().compareTo(BigDecimal.valueOf(100)) > 0) {
+                            throw new BusinessException("La promoción porcentual debe estar entre 0 y 100");
+                        }
                         descuentoItem = precioFinal
                                 .multiply(promo.getValor())
                                 .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
-                                .multiply(BigDecimal.valueOf(detalleDTO.getCantidad()));
+                                .multiply(BigDecimal.valueOf(cantidad));
                         break;
                     case MONTO_FIJO:
-                        descuentoItem = promo.getValor()
-                                .multiply(BigDecimal.valueOf(detalleDTO.getCantidad()));
+                        if (promo.getValor().compareTo(BigDecimal.ZERO) < 0) {
+                            throw new BusinessException("El descuento de la promoción no puede ser negativo");
+                        }
+                        descuentoItem = promo.getValor().min(precioFinal)
+                                .multiply(BigDecimal.valueOf(cantidad));
                         break;
                     case DOS_X_UNO:
-                        long gratis = detalleDTO.getCantidad() / 2;
+                        long gratis = cantidad / 2;
                         descuentoItem = precioFinal.multiply(BigDecimal.valueOf(gratis));
                         break;
                 }
@@ -120,52 +178,84 @@ public class VentaServiceImpl implements VentaService {
 
             DetalleVenta detalle = new DetalleVenta();
             detalle.setProducto(producto);
-            detalle.setCantidad(detalleDTO.getCantidad());
+            detalle.setCantidad(cantidad);
             detalle.setPrecioUnitario(precioFinal);
             detalle.setDescuento(descuentoItem);
             detalle.setSubtotal(precioFinal
-                    .multiply(BigDecimal.valueOf(detalleDTO.getCantidad()))
+                    .multiply(BigDecimal.valueOf(cantidad))
                     .subtract(descuentoItem));
             detalle.setVenta(venta);
 
             subtotal = subtotal.add(detalle.getSubtotal());
-            producto.setStock(producto.getStock() - detalleDTO.getCantidad());
-            productoRepository.save(producto);
             detalles.add(detalle);
         }
 
         if (subtotal.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException("El total calculado debe ser mayor a 0");
+            throw new BusinessException("El subtotal calculado debe ser mayor a 0");
         }
+        if (descuento.compareTo(subtotal) >= 0) {
+            throw new BusinessException("El descuento debe ser menor que el subtotal");
+        }
+
+        cantidadesPorProducto.forEach((idProducto, cantidad) -> {
+            Producto producto = productosBloqueados.get(idProducto);
+            producto.setStock(producto.getStock() - cantidad);
+            productoRepository.save(producto);
+        });
 
         venta.setSubtotal(subtotal);
         venta.setTotal(subtotal.subtract(venta.getDescuento()));
         venta.setDetalles(detalles);
 
-        return toDTO(ventaRepository.save(venta));
+        ventaRepository.saveAndFlush(venta);
+        venta.setFolio(String.format("VTA-%010d", venta.getId()));
+        Venta ventaGuardada = ventaRepository.save(venta);
+        log.info("Venta registrada: folio={}, usuario={}, total={}",
+                ventaGuardada.getFolio(), username, ventaGuardada.getTotal());
+        return toDTO(ventaGuardada);
     }
 
     @Override
     @Transactional
     public VentaDTO cancelar(Long id) {
-        Venta venta = ventaRepository.findById(id)
+        Venta venta = ventaRepository.findByIdForUpdate(id)
                 .orElseThrow(() -> new BusinessException(VENTA_NO_ENCONTRADA + id));
+        if (venta.getEstatus() == Venta.Estatus.CANCELADA) {
+            log.info("Solicitud de cancelación repetida: folio={}", venta.getFolio());
+            return toDTO(venta);
+        }
+        if (venta.getEstatus() != Venta.Estatus.COMPLETADA) {
+            throw new BusinessException("Solo se pueden cancelar ventas completadas");
+        }
+        Map<Long, Integer> cantidadesPorProducto = new TreeMap<>();
+        for (DetalleVenta detalle : venta.getDetalles()) {
+            cantidadesPorProducto.merge(detalle.getProducto().getId(), detalle.getCantidad(),
+                    Math::addExact);
+        }
+        cantidadesPorProducto.forEach((idProducto, cantidad) -> {
+            Producto producto = productoRepository.findByIdForUpdate(idProducto)
+                    .orElseThrow(() -> new BusinessException("Producto no encontrado: " + idProducto));
+            try {
+                producto.setStock(Math.addExact(producto.getStock(), cantidad));
+            } catch (ArithmeticException ex) {
+                throw new BusinessException("La existencia resultante excede el límite permitido");
+            }
+            productoRepository.save(producto);
+        });
         venta.setEstatus(Venta.Estatus.CANCELADA);
 
-        for (DetalleVenta detalle : venta.getDetalles()) {
-            Producto producto = detalle.getProducto();
-            producto.setStock(producto.getStock() + detalle.getCantidad());
-            productoRepository.save(producto);
-        }
-
-        return toDTO(ventaRepository.save(venta));
+        Venta ventaCancelada = ventaRepository.save(venta);
+        log.info("Venta cancelada: folio={}", ventaCancelada.getFolio());
+        return toDTO(ventaCancelada);
     }
 
     @Override
+    @Transactional(readOnly = true)
     public ReporteDTO generarReporte(LocalDateTime inicio, LocalDateTime fin) {
         ReporteDTO reporte = new ReporteDTO();
         BigDecimal total = ventaRepository.totalVentasPorPeriodo(inicio, fin);
-        List<Venta> ventas = ventaRepository.findByFechaBetween(inicio, fin);
+        List<Venta> ventas = ventaRepository.findByFechaBetweenAndEstatus(
+                inicio, fin, Venta.Estatus.COMPLETADA);
 
         reporte.setTotalVentas(total);
         reporte.setCantidadVentas((long) ventas.size());
@@ -218,14 +308,9 @@ public class VentaServiceImpl implements VentaService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public ReporteDTO generarReporteDetallado(LocalDateTime inicio, LocalDateTime fin) {
         return generarReporte(inicio, fin);
-    }
-
-    private String generarFolio() {
-        String ultimo = ventaRepository.findUltimoFolio().orElse("VTA-0000");
-        int numero = Integer.parseInt(ultimo.replace("VTA-", "")) + 1;
-        return String.format("VTA-%04d", numero);
     }
 
     private VentaDTO toDTO(Venta v) {

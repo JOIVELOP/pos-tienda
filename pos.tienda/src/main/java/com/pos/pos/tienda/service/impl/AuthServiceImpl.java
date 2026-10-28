@@ -6,11 +6,15 @@ import com.pos.pos.tienda.model.Usuario;
 import com.pos.pos.tienda.repository.UsuarioRepository;
 import com.pos.pos.tienda.security.JwtUtil;
 import com.pos.pos.tienda.service.AuthService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 @Service
 public class AuthServiceImpl implements AuthService {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthServiceImpl.class);
 
     private final UsuarioRepository usuarioRepository;
     private final PasswordEncoder passwordEncoder;
@@ -28,18 +32,19 @@ public class AuthServiceImpl implements AuthService {
     @Override
     public AuthDTO.Response login(AuthDTO.Login dto) {
         Usuario usuario = usuarioRepository.findByUsername(dto.getUsername())
-                .orElseThrow(() -> new BusinessException("Usuario o contraseña incorrectos"));
-
-        System.out.println("USERNAME: " + dto.getUsername());
-        System.out.println("PASSWORD: " + dto.getPassword());
-
-
+                .orElseThrow(() -> {
+                    log.warn("Inicio de sesión rechazado: usuario no encontrado={}", dto.getUsername());
+                    return new BusinessException("Usuario o contraseña incorrectos");
+                });
 
         if (!passwordEncoder.matches(dto.getPassword(), usuario.getPassword())) {
+            log.warn("Inicio de sesión rechazado: contraseña incorrecta para usuario={}",
+                    dto.getUsername());
             throw new BusinessException("Usuario o contraseña incorrectos");
         }
 
         if (!Boolean.TRUE.equals(usuario.getActivo())) {
+            log.warn("Inicio de sesión rechazado: usuario inactivo={}", dto.getUsername());
             throw new BusinessException("Usuario inactivo");
         }
 
@@ -48,7 +53,7 @@ public class AuthServiceImpl implements AuthService {
                 usuario.getRol().name()
 
         );
-        System.out.println("TOKEN: " + token);
+        log.info("Inicio de sesión exitoso para usuario={}", usuario.getUsername());
 
         return new AuthDTO.Response(
                 token,

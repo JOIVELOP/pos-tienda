@@ -4,6 +4,7 @@ import com.pos.pos.tienda.security.JwtFilter;
 import com.pos.pos.tienda.security.JwtUtil;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -44,6 +45,17 @@ public class SecurityConfig {
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/usuarios/**").hasRole("ADMINISTRADOR")
                         .requestMatchers("/api/reportes/**").hasAnyRole("ADMINISTRADOR","ENCARGADO")
+                        .requestMatchers("/api/compras/**", "/api/devoluciones/**")
+                        .hasAnyRole("ADMINISTRADOR", "ENCARGADO")
+                        .requestMatchers(HttpMethod.GET, "/api/productos/**", "/api/clientes/**")
+                        .authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/ventas/reporte")
+                        .hasAnyRole("ADMINISTRADOR", "ENCARGADO")
+                        .requestMatchers(HttpMethod.PATCH, "/api/ventas/*/cancelar")
+                        .hasAnyRole("ADMINISTRADOR", "ENCARGADO")
+                        .requestMatchers("/api/productos/**", "/api/categorias/**",
+                                "/api/proveedores/**", "/api/promociones/**", "/api/clientes/**")
+                        .hasAnyRole("ADMINISTRADOR", "ENCARGADO")
                         .anyRequest().authenticated()
                 )
                 .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);

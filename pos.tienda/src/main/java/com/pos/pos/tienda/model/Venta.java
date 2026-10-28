@@ -56,6 +56,10 @@ public class Venta {
     @JoinColumn(name = "id_usuario", nullable = false)
     private Usuario usuario;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "id_turno_caja")
+    private TurnoCaja turnoCaja;
+
     @OneToMany(mappedBy = "venta", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private List<DetalleVenta> detalles;
 
@@ -145,6 +149,14 @@ public class Venta {
 
     public void setUsuario(Usuario usuario) {
         this.usuario = usuario;
+    }
+
+    public TurnoCaja getTurnoCaja() {
+        return turnoCaja;
+    }
+
+    public void setTurnoCaja(TurnoCaja turnoCaja) {
+        this.turnoCaja = turnoCaja;
     }
 
     public List<DetalleVenta> getDetalles() {

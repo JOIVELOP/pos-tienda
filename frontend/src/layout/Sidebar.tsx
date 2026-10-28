@@ -10,6 +10,9 @@ export default function Sidebar() {
   const menuItems = [
     { icon: "🏠", label: "Dashboard",   path: "/",           roles: ["ADMINISTRADOR", "ENCARGADO", "EMPLEADO"] },
     { icon: "💰", label: "Ventas",      path: "/ventas",     roles: ["ADMINISTRADOR", "ENCARGADO", "EMPLEADO"] },
+    { icon: "🧾", label: "Caja",        path: "/caja",       roles: ["ADMINISTRADOR", "ENCARGADO", "EMPLEADO"] },
+    { icon: "🛒", label: "Compras",     path: "/compras",    roles: ["ADMINISTRADOR", "ENCARGADO"] },
+    { icon: "↩️", label: "Devoluciones",path: "/devoluciones",roles: ["ADMINISTRADOR", "ENCARGADO"] },
     { icon: "📦", label: "Productos",   path: "/productos",  roles: ["ADMINISTRADOR", "ENCARGADO"] },
     { icon: "🏷️", label: "Categorías",  path: "/categorias", roles: ["ADMINISTRADOR", "ENCARGADO"] },
     { icon: "🏷️", label: "Promociones", path: "/promociones",roles: ["ADMINISTRADOR", "ENCARGADO"] },

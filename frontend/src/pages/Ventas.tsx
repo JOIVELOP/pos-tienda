@@ -1,8 +1,10 @@
-  import { useEffect, useState } from "react";
+  import { useEffect, useRef, useState } from "react";
+  import { Link } from "react-router-dom";
   import Layout from "../layout/Layout";
   import api from "../api/axios";
   import { AxiosError } from "axios";
   import logo from "../assets/bolsa.png";
+  import { leerDiario, propio, registrar, sincronizar, pendientes } from "../offline/diario";
 
   interface Producto {
     id: number;
@@ -49,16 +51,42 @@
     const [ultimaVenta, setUltimaVenta] =useState<VentaResponse | null>(null);
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
     const [efectivoVenta, setEfectivoVenta] = useState(0);
+    const [turnoAbierto, setTurnoAbierto] = useState(false);
+    const [verificandoTurno, setVerificandoTurno] = useState(true);
+    const [modoDiario, setModoDiario] = useState(false);
+    const [procesando, setProcesando] = useState(false);
+    const cobrando = useRef(false);
 
-    // ✅ cargar productos
     useEffect(() => {
-      api.get("/productos").then((r) => setProductos(r.data));
-    }, []);
-
-        // Carga clientes
-    useEffect(() => {
-      api.get("/productos").then((r) => setProductos(r.data));
-      api.get("/clientes").then((r) => setClientes(r.data));
+      const cargar = async () => {
+        try {
+          const diario = await leerDiario();
+          if (diario && (!diario.sesion.cerrada || pendientes(diario).length)) {
+            propio(diario);
+            setModoDiario(true);
+            setProductos(diario.sesion.productos);
+            setClientes([]);
+            setIdCliente(null);
+            setMetodoPago("EFECTIVO");
+            setTurnoAbierto(!diario.sesion.cerrada);
+            return;
+          }
+          setModoDiario(false);
+          const [catalogo, clientes, turno] = await Promise.all([
+            api.get("/productos"), api.get("/clientes"), api.get("/caja/actual"),
+          ]);
+          setProductos(catalogo.data);
+          setClientes(clientes.data);
+          setTurnoAbierto(turno.status !== 204);
+        } catch (error) {
+          setTurnoAbierto(false);
+          setErrorMsg(error instanceof Error ? error.message : "No se pudo cargar la caja.");
+        } finally { setVerificandoTurno(false); }
+      };
+      void cargar();
+      const actualizar = () => { void cargar(); };
+      window.addEventListener("diario", actualizar);
+      return () => window.removeEventListener("diario", actualizar);
     }, []);
 
     
@@ -177,7 +205,7 @@
 
     // ✅ PROCESAR VENTA
     const procesarVenta = async () => {
-      if (carrito.length === 0) return;
+      if (carrito.length === 0 || cobrando.current) return;
 
       if (
         metodoPago === "EFECTIVO" &&
@@ -191,7 +219,7 @@
 
       const dto = {
         metodoPago,
-        idUsuario: user.id,
+        idCliente,
         subtotal: total,
         total,
         descuento: 0,
@@ -205,7 +233,31 @@
         })),
       };
 
+      cobrando.current = true;
+      setProcesando(true);
       try {
+        if (modoDiario) {
+          if (metodoPago !== "EFECTIVO") throw new Error("La caja preparada admite solo efectivo.");
+          const operacion = await registrar("VENTA", Math.round(total * 100) / 100, "Venta de mostrador",
+            carrito.map(i => ({ idProducto: i.producto.id, cantidad: i.cantidad })));
+          setUltimaVenta({
+            id: 0, folio: `PROVISIONAL ${operacion.id}`, fecha: operacion.captura,
+            total: operacion.monto,
+            detalles: carrito.map(i => ({
+              id: i.producto.id, idProducto: i.producto.id, nombreProducto: i.producto.nombre,
+              cantidad: i.cantidad, precioUnitario: i.producto.precioVenta,
+              subtotal: Math.round(i.subtotal * 100) / 100,
+            })),
+          });
+          setEfectivoVenta(efectivo);
+          setCarrito([]);
+          setBusqueda("");
+          setEfectivo(0);
+          setTicketVisible(true);
+          void sincronizar().catch(error => setErrorMsg(
+            error instanceof Error ? error.message : "Venta guardada localmente, sincronización pendiente."));
+          return;
+        }
         const res = await api.post("/ventas", dto);
 
         setUltimaVenta(res.data);
@@ -245,20 +297,33 @@
 
       } catch (error) {
         const err = error as AxiosError<{
-          message: string;
+          message?: string;
+          error?: string;
         }>;
 
         const msg =
+          err.response?.data?.error ||
           err.response?.data?.message ||
+          (error instanceof Error ? error.message : "") ||
           "Error al procesar la venta";
 
         setErrorMsg(msg);
+      } finally {
+        cobrando.current = false;
+        setProcesando(false);
       }
     
     };
 
     return (
       <Layout>
+        {!verificandoTurno && !turnoAbierto && (
+          <div className="card" role="alert" style={{ marginBottom: 16 }}>
+            <strong>Abre tu turno de caja antes de cobrar.</strong>
+            <p>Las ventas se registran dentro de un turno para poder conciliar el efectivo al cierre.</p>
+            <Link className="btn-primary" to="/caja">Ir a caja</Link>
+          </div>
+        )}
         <div className="pos-grid">
 
           {/* PRODUCTOS */}
@@ -398,6 +463,7 @@
       <div className="form-field">
         <label>Método de pago</label>
         <select
+          disabled={modoDiario}
           value={metodoPago}
           onChange={(e) => setMetodoPago(e.target.value)}
         >
@@ -445,6 +511,8 @@
           className="btn-primary"
           style={{ width: "100%" }}
           disabled={
+            procesando ||
+            !turnoAbierto ||
             carrito.length === 0 ||
             total <= 0 ||
             (metodoPago === "EFECTIVO" && efectivo < total)

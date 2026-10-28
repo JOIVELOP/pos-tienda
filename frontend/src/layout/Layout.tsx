@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import PanelOffline from "../offline/PanelOffline";
 
 interface Props {
   children: ReactNode;
@@ -13,6 +14,7 @@ export default function Layout({ children }: Props) {
       <div className="layout-main">
         <Header />
         <div className="layout-content">
+          <PanelOffline />
           {children}
         </div>
       </div>

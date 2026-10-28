@@ -1,7 +1,10 @@
 package com.pos.pos.tienda.dto;
 
 import com.pos.pos.tienda.model.Venta;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.NotEmpty;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -13,11 +16,14 @@ public class VentaDTO {
     private LocalDateTime fecha;
 
     @NotNull
+    @DecimalMin("0.0")
     private BigDecimal subtotal;
 
+    @DecimalMin("0.0")
     private BigDecimal descuento = BigDecimal.ZERO;
 
     @NotNull
+    @DecimalMin("0.0")
     private BigDecimal total;
 
     @NotNull
@@ -30,7 +36,8 @@ public class VentaDTO {
     private Long idUsuario;
     private String nombreUsuario;
 
-    @NotNull
+    @NotEmpty
+    @Valid
     private List<DetalleVentaDTO> detalles;
 
     public Long getId() {

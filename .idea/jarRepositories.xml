@@ -2,9 +2,19 @@
 <project version="4">
   <component name="RemoteRepositoriesConfiguration">
     <remote-repository>
+      <option name="id" value="artifactory-user" />
+      <option name="name" value="artifactory-user" />
+      <option name="url" value="https://artifactory.globaldevtools.bbva.com:443/artifactory/gl-apx-dev-maven-virtual" />
+    </remote-repository>
+    <remote-repository>
       <option name="id" value="central" />
       <option name="name" value="Central Repository" />
       <option name="url" value="https://repo.maven.apache.org/maven2" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="aso-user" />
+      <option name="name" value="aso-user" />
+      <option name="url" value="https://artifactory.globaldevtools.bbva.com/artifactory/common-aso-maven-virtual/" />
     </remote-repository>
     <remote-repository>
       <option name="id" value="artifactory-APX" />
@@ -20,6 +30,11 @@
       <option name="id" value="jboss.community" />
       <option name="name" value="JBoss Community repository" />
       <option name="url" value="https://repository.jboss.org/nexus/content/repositories/public/" />
+    </remote-repository>
+    <remote-repository>
+      <option name="id" value="apx-user" />
+      <option name="name" value="apx-user" />
+      <option name="url" value="https://artifactory.globaldevtools.bbva.com/artifactory/gl-apx-dev-maven-virtual" />
     </remote-repository>
   </component>
 </project>

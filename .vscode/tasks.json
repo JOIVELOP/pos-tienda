@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Check build tool availability",
+			"type": "shell",
+			"command": "where.exe node & where.exe npm & where.exe java & where.exe mvn",
+			"problemMatcher": []
+		}
+	]
+}

@@ -9,6 +9,9 @@ import Categorias from "./pages/Categorias";
 import Promociones from "./pages/Promociones";
 import Reportes from "./pages/Reportes";
 import Usuarios from "./pages/Usuarios";
+import Caja from "./pages/Caja";
+import Compras from "./pages/Compras";
+import Devoluciones from "./pages/Devoluciones";
 import ProtectedRoute from "./auth/ProtectedRoute";
 import RoleRoute from "./auth/RoleRoute";
 
@@ -31,6 +34,28 @@ function App() {
         <Route path="/ventas" element={
           <ProtectedRoute>
             <Ventas />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/caja" element={
+          <ProtectedRoute>
+            <Caja />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/compras" element={
+          <ProtectedRoute>
+            <RoleRoute roles={ADMIN_ENCARGADO}>
+              <Compras />
+            </RoleRoute>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/devoluciones" element={
+          <ProtectedRoute>
+            <RoleRoute roles={ADMIN_ENCARGADO}>
+              <Devoluciones />
+            </RoleRoute>
           </ProtectedRoute>
         } />
 

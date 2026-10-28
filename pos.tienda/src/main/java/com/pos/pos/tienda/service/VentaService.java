@@ -10,7 +10,7 @@ public interface VentaService {
     List<VentaDTO> findAll();
     VentaDTO findById(Long id);
     VentaDTO findByFolio(String folio);
-    VentaDTO save(VentaDTO dto);
+    VentaDTO save(VentaDTO dto, String username);
     VentaDTO cancelar(Long id);
     ReporteDTO generarReporte(LocalDateTime inicio, LocalDateTime fin);
     ReporteDTO generarReporteDetallado(LocalDateTime inicio, LocalDateTime fin);
